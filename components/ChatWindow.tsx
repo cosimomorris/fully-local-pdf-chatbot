@@ -45,7 +45,7 @@ export function ChatWindow(props: {
         const ollamaConfig = {
           baseUrl: "http://localhost:11435",
           temperature: 0.3,
-          model: "mistral",
+          model: "llama3",
         };
         const payload: Record<string, any> = {
           messages,
@@ -207,94 +207,10 @@ export function ChatWindow(props: {
     <>
       <div className="p-4 md:p-8 rounded bg-[#25252d] w-full max-h-[85%] overflow-hidden flex flex-col">
         <h1 className="text-3xl md:text-4xl mb-2 ml-auto mr-auto">
-          {emoji} Fully {browserOnly ? "In-Browser" : "Client-Side"} Chat Over Documents {emoji}
+          {emoji} Fully {browserOnly ? "In-Browser" : "Client-Side"} LCAP Analysis {emoji}
         </h1>
-        <div className="my-4 rounded border p-2 ml-auto mr-auto">
-          <label htmlFor="one">
-            <input id="one" type="checkbox" checked={browserOnly} onChange={(e) => setBrowserOnly(e.target.checked)}/>
-            Browser-only mode
-          </label>
-        </div>
-        <ul>
-          <li className="text-l">
-            🏡
-            <span className="ml-2">
-              Yes, it&apos;s another LLM-powered chat over documents implementation... but this one is entirely {browserOnly ? "local in your browser" : "local"}!
-            </span>
-          </li>
-          <li className="hidden text-l md:block">
-            🌐
-            <span className="ml-2">
-              The vector store (<a target="_blank" href="https://github.com/tantaraio/voy">Voy</a>) and embeddings (<a target="_blank" href="https://huggingface.co/docs/transformers.js/index">Transformers.js</a>) are served via Vercel Edge function and run fully in the browser with no setup required.
-            </span>
-          </li>
-          {browserOnly 
-            ? (
-              <li>
-                ⚙️
-                <span className="ml-2">
-                  The default LLM is Phi-2 run using <a href="https://webllm.mlc.ai/">WebLLM</a>.
-                  The first time you start a chat, the app will automatically download the weights and cache them in your browser.
-                </span>
-              </li>
-            ) 
-            : (
-                <li>
-                  ⚙️
-                  <span className="ml-2">
-                    The default LLM is Mistral-7B run locally by Ollama. You&apos;ll need to install <a target="_blank" href="https://ollama.ai">the Ollama desktop app</a> and run the following commands to give this site access to the locally running model:
-                    <br/>
-                    <pre className="inline-flex px-2 py-1 my-2 rounded">$ OLLAMA_ORIGINS=https://webml-demo.vercel.app OLLAMA_HOST=127.0.0.1:11435 ollama serve
-                    </pre>
-                    <br/>
-                    Then, in another window:
-                    <br/>
-                    <pre className="inline-flex px-2 py-1 my-2 rounded">$ OLLAMA_HOST=127.0.0.1:11435 ollama pull mistral</pre>
-                  </span>
-                </li>
-              )
-          }
-          {browserOnly && (
-              <li>
-                🏋️
-                <span className="ml-2">
-                  These weights are several GB in size, so it may take some time. Make sure you have a good internet connection!
-                </span>
-              </li>
-          )}
-          <li>
-            🗺️
-            <span className="ml-2">
-              The default embeddings are <pre className="inline-flex px-2 py-1 my-2 rounded">&quot;Xenova/all-MiniLM-L6-v2&quot;</pre>. For higher-quality embeddings on machines that can handle it, switch to <pre className="inline-flex px-2 py-1 my-2 rounded">nomic-ai/nomic-embed-text-v1</pre> in <pre className="inline-flex px-2 py-1 my-2 rounded">app/worker.ts</pre>.
-            </span>
-          </li>
-          <li className="hidden text-l md:block">
-            🦜
-            <span className="ml-2">
-              <a target="_blank" href="https://js.langchain.com">LangChain.js</a> handles orchestration and ties everything together!
-            </span>
-          </li>
-          <li className="text-l">
-            🐙
-            <span className="ml-2">
-              This template is open source - you can see the source code and
-              deploy your own version{" "}
-              <a
-                href="https://github.com/jacoblee93/fully-local-pdf-chatbot"
-                target="_blank"
-              >
-                from the GitHub repo
-              </a>
-              !
-            </span>
-          </li>
-          <li className="text-l">
-            👇
-            <span className="ml-2">
-              Try embedding a PDF below, then asking questions! You can even turn off your WiFi{browserOnly && " after the initial model download"}.
-            </span>
-          </li>
-        </ul>
+      
+       
       </div>
       <form onSubmit={embedPDF} className="mt-4 flex justify-between items-center w-full">
         <input id="file_input" type="file" accept="pdf" className="text-white" onChange={(e) => e.target.files ? setSelectedPDF(e.target.files[0]) : null}></input>

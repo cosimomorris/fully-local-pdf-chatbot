@@ -22,26 +22,21 @@ import {
   HumanMessage,
 } from "@langchain/core/messages";
 import { RecursiveCharacterTextSplitter } from "langchain/text_splitter";
-import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import type { LanguageModelLike } from "@langchain/core/language_models/base";
 
 import { LangChainTracer } from "@langchain/core/tracers/tracer_langchain";
 import { Client } from "langsmith";
 
 import { ChatOllama } from "@langchain/community/chat_models/ollama";
-import { ChatWebLLM } from "@langchain/community/chat_models/webllm";
 
 const embeddings = new HuggingFaceTransformersEmbeddings({
-  modelName: "Xenova/all-MiniLM-L6-v2",
-  // Can use "nomic-ai/nomic-embed-text-v1" for more powerful but slower embeddings
-  // modelName: "nomic-ai/nomic-embed-text-v1",
+  modelName: "nomic-ai/nomic-embed-text-v1",
 });
 
 const voyClient = new VoyClient();
 const vectorstore = new VoyVectorStore(voyClient, embeddings);
 
-const OLLAMA_RESPONSE_SYSTEM_TEMPLATE = `You are an experienced researcher, expert at interpreting and answering questions based on provided sources. Using the provided context, answer the user's question to the best of your ability using the resources provided.
-Generate a concise answer for a given question based solely on the provided search results. You must only use information from the provided search results. Use an unbiased and journalistic tone. Combine search results together into a coherent answer. Do not repeat text.
+const OLLAMA_RESPONSE_SYSTEM_TEMPLATE = `
 If there is nothing in the context relevant to the question at hand, just say "Hmm, I'm not sure." Don't try to make up an answer.
 Anything between the following \`context\` html blocks is retrieved from a knowledge bank, not part of the conversation with the user.
 <context>
@@ -50,27 +45,89 @@ Anything between the following \`context\` html blocks is retrieved from a knowl
 
 REMEMBER: If there is no relevant information within the context, just say "Hmm, I'm not sure." Don't try to make up an answer. Anything between the preceding 'context' html blocks is retrieved from a knowledge bank, not part of the conversation with the user.`;
 
-const WEBLLM_RESPONSE_SYSTEM_TEMPLATE = `You are an experienced researcher, expert at interpreting and answering questions based on provided sources. Using the provided context, answer the user's question to the best of your ability using the resources provided.
-Generate a concise answer for a given question based solely on the provided search results. You must only use information from the provided search results. Use an unbiased and journalistic tone. Combine search results together into a coherent answer. Do not repeat text, stay focused, and stop generating when you have answered the question.
-If there is nothing in the context relevant to the question at hand, just say "Hmm, I'm not sure." Don't try to make up an answer.`;
-
 const embedPDF = async (pdfBlob: Blob) => {
   const pdfLoader = new WebPDFLoader(pdfBlob, { parsedItemSeparator: " " });
   const docs = await pdfLoader.load();
 
   const splitter = new RecursiveCharacterTextSplitter({
-    chunkSize: 500,
+    chunkSize: 1000,
     chunkOverlap: 50,
   });
 
   const splitDocs = await splitter.splitDocuments(docs);
 
+  // Define regular expressions for Goals, Actions, and Metrics
+  const goalRegex = /Goal\s+\d+:\s+([\s\S]*?)(?=Goal\s+\d+:|$)/gis;
+  const actionRegex =
+    /Actions?\s*:\s*([\s\S]*?)(?=Actions?\s*:\s*|Metrics?\s*:\s*|Goal\s+\d+:|$)/gis;
+  const metricRegex =
+    /Metrics?\s*:\s*([\s\S]*?)(?=Metrics?\s*:\s*|Actions?\s*:\s*|Goal\s+\d+:|$)/gis;
+
+  const extractedContent: {
+    goal: string;
+    description: string;
+    actions: string[];
+    metrics: string[];
+  }[] = [];
+
+  for (const doc of splitDocs) {
+    const content = doc.pageContent;
+    let match;
+
+    while ((match = goalRegex.exec(content)) !== null) {
+      const goalContent = match[1];
+      const [goalTitle, ...goalDescription] = goalContent
+        .split("\n")
+        .map((line) => line.trim());
+      const goal = goalTitle;
+      const description = goalDescription.join(" ").trim();
+
+      // Extract Actions for the current Goal
+      const actionMatches: string[] = [];
+      let actionMatch;
+      while ((actionMatch = actionRegex.exec(goalContent)) !== null) {
+        actionMatches.push(actionMatch[1].trim());
+      }
+
+      // Extract Metrics for the current Goal
+      const metricMatches: string[] = [];
+      let metricMatch;
+      while ((metricMatch = metricRegex.exec(goalContent)) !== null) {
+        metricMatches.push(metricMatch[1].trim());
+      }
+
+      extractedContent.push({
+        goal,
+        description,
+        actions: actionMatches,
+        metrics: metricMatches,
+      });
+    }
+  }
+
+  // Log the extracted content for debugging
   self.postMessage({
     type: "log",
-    data: splitDocs,
+    data: extractedContent,
   });
 
-  await vectorstore.addDocuments(splitDocs);
+  // Create Document instances from the extracted content
+  const documents: Document<Record<string, any>>[] = extractedContent.map(
+    (info) => {
+      const pageContent = `Goal: ${info.goal}\nDescription: ${
+        info.description
+      }\nActions:\n${info.actions.join("\n")}\nMetrics:\n${info.metrics.join(
+        "\n",
+      )}`;
+      return {
+        pageContent,
+        metadata: {},
+      };
+    },
+  );
+
+  // Add the documents to the vector store
+  await vectorstore.addDocuments(documents);
 };
 
 const _formatChatHistoryAsMessages = async (
@@ -89,45 +146,24 @@ const queryVectorStore = async (
   messages: ChatWindowMessage[],
   {
     chatModel,
-    modelProvider,
     devModeTracer,
   }: {
     chatModel: LanguageModelLike;
-    modelProvider: "ollama" | "webllm";
     devModeTracer?: LangChainTracer;
   },
 ) => {
   const text = messages[messages.length - 1].content;
   const chatHistory = await _formatChatHistoryAsMessages(messages.slice(0, -1));
 
-  const responseChainPrompt =
-    modelProvider === "ollama"
-      ? ChatPromptTemplate.fromMessages<{
-          context: string;
-          chat_history: BaseMessage[];
-          question: string;
-        }>([
-          ["system", OLLAMA_RESPONSE_SYSTEM_TEMPLATE],
-          new MessagesPlaceholder("chat_history"),
-          ["user", `{input}`],
-        ])
-      : ChatPromptTemplate.fromMessages<{
-          context: string;
-          chat_history: BaseMessage[];
-          question: string;
-        }>([
-          ["system", WEBLLM_RESPONSE_SYSTEM_TEMPLATE],
-          [
-            "user",
-            "When responding to me, use the following documents as context:\n<context>\n{context}\n</context>",
-          ],
-          [
-            "ai",
-            "Understood! I will use the documents between the above <context> tags as context when answering your next questions.",
-          ],
-          new MessagesPlaceholder("chat_history"),
-          ["user", `{input}`],
-        ]);
+  const responseChainPrompt = ChatPromptTemplate.fromMessages<{
+    context: string;
+    chat_history: BaseMessage[];
+    question: string;
+  }>([
+    ["system", OLLAMA_RESPONSE_SYSTEM_TEMPLATE],
+    new MessagesPlaceholder("chat_history"),
+    ["user", `{input}`],
+  ]);
 
   const documentChain = await createStuffDocumentsChain({
     llm: chatModel,
@@ -137,23 +173,14 @@ const queryVectorStore = async (
     ),
   });
 
-  const historyAwarePrompt =
-    modelProvider === "ollama"
-      ? ChatPromptTemplate.fromMessages([
-          new MessagesPlaceholder("chat_history"),
-          ["user", "{input}"],
-          [
-            "user",
-            "Given the above conversation, generate a natural language search query to look up in order to get information relevant to the conversation. Do not respond with anything except the query.",
-          ],
-        ])
-      : ChatPromptTemplate.fromMessages([
-          new MessagesPlaceholder("chat_history"),
-          [
-            "user",
-            "Given the above conversation, rephrase the following question into a standalone, natural language query with important keywords that a researcher could later pass into a search engine to get information relevant to the conversation. Do not respond with anything except the query.\n\n<question_to_rephrase>\n{input}\n</question_to_rephrase>",
-          ],
-        ]);
+  const historyAwarePrompt = ChatPromptTemplate.fromMessages([
+    new MessagesPlaceholder("chat_history"),
+    ["user", "{input}"],
+    [
+      "user",
+      "Given the above conversation, generate a natural language search query to look up in order to get information relevant to the conversation. Do not respond with anything except the query.",
+    ],
+  ]);
 
   const historyAwareRetrieverChain = await createHistoryAwareRetriever({
     llm: chatModel,
@@ -227,31 +254,17 @@ self.addEventListener("message", async (event: { data: any }) => {
       throw e;
     }
   } else {
-    const modelProvider = event.data.modelProvider;
     const modelConfig = event.data.modelConfig;
-    let chatModel: BaseChatModel | LanguageModelLike;
-    if (modelProvider === "webllm") {
-      const webllmModel = new ChatWebLLM(modelConfig);
-      await webllmModel.initialize((event) =>
-        self.postMessage({ type: "init_progress", data: event }),
-      );
-      chatModel = webllmModel.bind({ stop: ["\nInstruct:", "Instruct:"] });
-    } else {
-      chatModel = new ChatOllama(modelConfig);
-    }
+    const chatModel = new ChatOllama(modelConfig);
     try {
       await queryVectorStore(event.data.messages, {
         devModeTracer,
-        modelProvider,
         chatModel,
       });
     } catch (e: any) {
       self.postMessage({
         type: "error",
-        error:
-          event.data.modelProvider === "ollama"
-            ? `${e.message}. Make sure you are running Ollama.`
-            : `${e.message}. Make sure your browser supports WebLLM/WebGPU.`,
+        error: `${e.message}. Make sure you are running Ollama.`,
       });
       throw e;
     }

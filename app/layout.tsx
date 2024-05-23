@@ -13,7 +13,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <head>
-        <title>Fully In-Browser Chat Over Documents</title>
+        <title>LCAP ANALYSIS CHATBOT</title>
         <link rel="shortcut icon" href="/images/favicon.ico" />
         <meta
           name="description"
@@ -21,11 +21,11 @@ export default function RootLayout({
         />
         <meta
           property="og:title"
-          content="Fully In-Browser Chat Over Documents"
+          content="LACAP Analysis Chatbot"
         />
         <meta
           property="og:description"
-          content="Upload a PDF, then ask questions about it - without a single remote request!"
+          content="Upload a PDF, then ask questions about it with a focus on LACAP Analysis!(GOALS)"
         />
         <meta property="og:image" content="/images/og-image.png" />
         <meta property="og:image:width" content="1200" />
